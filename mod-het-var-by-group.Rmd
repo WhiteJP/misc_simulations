@@ -1,0 +1,456 @@
+---
+title: "Modelling heterogenous variance"
+author: Joshua White
+copyright: '`format(Sys.time(), format = "%Y", tz = "UTC")` Cogstate'
+date: '27 May 2022'
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+header-includes:
+  - \usepackage{pdflscape}
+  - \newcommand{\blandscape}{\begin{landscape}}
+  - \newcommand{\elandscape}{\end{landscape}}
+editor_options: 
+  chunk_output_type: console
+params:
+  session_summary: false
+---
+
+# Title
+
+<!-- Location of templates: `r file.path(dirname(path.expand("~")), "AppData", "Roaming", "RStudio", "templates")` -->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  comment = "#> ",
+  fig.width = 9,
+  fig.height = 5,
+  message = FALSE,
+  warning = FALSE
+)
+
+options(
+  tidyverse.quiet = TRUE
+)
+
+ggplot2::theme_set(cogstate::theme_cogstate())
+```
+
+### load packages
+
+```{r packages}
+library(cogstate)
+library(tidyverse)
+library(lme4)
+library(nlme)
+library(flextable)
+```
+
+### Simulate data
+
+Simulate the following data sets:
+
+* with homogenous variance and no group structure: `df_homo`
+* with homogenous variance but with group structure (both btwn and wi participant var): `df_homo_group`
+* with heterogeneous variance within participants (by treatment group), but homogenous between: `df_wi`
+* with heterogeneous variance between participants (by treatment group), but homogenous within: `df_bw`
+* with BOTH heterogeneous variance between participants and within participants (by treatment group): `df_bw`
+
+Note, all datasets have the exact same fixed effects structure:
+
+- there is an effect of `day`, with an average improvement of 0.25 each day
+- there is an effect `time`, with AM scores being 2 points better than PM scores on average.
+- there are no other significant fixed effects. 
+
+Also note that these data have been constructed to have been similar to a standard T score. 
+so that mean is approx 100 and sd approx 10-15.
+
+```{r}
+
+# get base df - for now now errors in Outcome
+n_subj <- 200
+  
+df <- tibble(
+  ID = rep(1:n_subj, each = 14*2),
+  day = rep(rep(1:14, each = 2), n_subj), 
+  time = rep(c("AM", "PM"), n_subj*14),
+  treatment = rep(c("Drug", "Placebo"), each = n_subj*14*2/2),
+  outcome = 100 + day*0.25 + ifelse(time == "AM", 1, -1)
+)
+
+#make outcome that is homogenous the whole way - no group str
+df_homo <- df %>% 
+  mutate(
+    outcome = outcome + rnorm(nrow(df), sd = 10)
+  )
+
+
+df_homo_group <- df %>% 
+  mutate(
+    # add bw participants var
+    outcome = outcome + rep(rnorm(n_subj, sd = 5), each = 14*2),
+    
+    #add wi participants var
+    outcome = outcome + rnorm(nrow(df), sd = 10)
+  )
+
+#make outcome so that there is a within subjects difference in variation
+df_wi <- df %>% 
+  mutate(
+    outcome = case_when(
+      treatment == "Drug" ~ outcome + rnorm(nrow(df)/2, sd = 15),
+      treatment == "Placebo" ~ outcome + rnorm(nrow(df)/2, sd = 10)
+    )
+  )
+
+
+#make outcome so that there is a difference in the between participants SD, but same within
+df_bw <- df %>% 
+  mutate(
+    # add different participant level variance
+    outcome = case_when(
+      treatment == "Drug" ~ outcome + rep(rnorm(n_subj/2, sd = 10), each = 14*2),
+      treatment == "Placebo" ~ outcome + rep(rnorm(n_subj/2, sd = 5), each = 14*2)
+    ),
+    # add the same within participant variance
+    outcome = outcome + rnorm(n = nrow(df), sd = 5)
+  )
+
+#check that done correctly
+# df_bw %>% 
+#   group_by(treatment, ID) %>% 
+#   summarise(
+#     mean_outcome = mean(outcome),
+#     sd_outcome = sd(outcome)
+#     ) %>% 
+#   group_by(treatment) %>% 
+#   summarise(mean = mean(mean_outcome),
+#             sd = sd(mean_outcome))
+  
+# make outcome that has no within 
+df_both <- df %>% 
+  mutate(
+    # add different participant level variance
+    outcome = case_when(
+      treatment == "Drug" ~ outcome + rep(rnorm(n_subj/2, sd = 10), each = 14*2),
+      treatment == "Placebo" ~ outcome + rep(rnorm(n_subj/2, sd = 5), each = 14*2)
+    ),
+    # add different 
+    outcome = case_when(
+      treatment == "Drug" ~ outcome + rnorm(nrow(df)/2, sd = 10),
+      treatment == "Placebo" ~ outcome + rnorm(nrow(df)/2, sd = 5)
+    )
+  )
+
+```
+
+## Plot to see what data look like
+
+```{r}
+df_homo %>% 
+  group_by(ID, time, treatment) %>% 
+  summarise(mean = mean(outcome),
+          sd = sd(outcome),
+          se = sd/sqrt(n())) %>% 
+  ggplot(aes(x = ID, y = mean, col = treatment)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0, lwd = .5) +
+  labs(
+    title = "Data with homogeneous b/w and w/i subj var, and no group structure"
+  )
+
+
+df_homo_group %>% 
+  group_by(ID, time, treatment) %>% 
+  summarise(mean = mean(outcome),
+            sd = sd(outcome),
+            se = sd/sqrt(n())) %>% 
+  ggplot(aes(x = ID, y = mean, col = treatment)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0, lwd = .5) +
+  labs(
+    title = "Data with homogeneous b/w and w/i subj var, with subj group structure"
+  )
+
+
+df_wi %>% 
+  group_by(ID, time, treatment) %>% 
+  summarise(mean = mean(outcome),
+            sd = sd(outcome),
+            se = sd/sqrt(n())) %>% 
+  ggplot(aes(x = ID, y = mean, col = treatment)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0, lwd = .5) +
+  labs(
+    title = "Data with homogeneous b/w but hetero w/i subj var "
+  )
+
+df_bw %>% 
+  group_by(ID, time, treatment) %>% 
+  summarise(mean = mean(outcome),
+            sd = sd(outcome),
+            se = sd/sqrt(n())) %>% 
+  ggplot(aes(x = ID, y = mean, col = treatment)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0, lwd = .5) +
+  labs(
+    title = "Data with heterogenous b/w but homo w/i subj var "
+  )
+
+
+df_both %>% 
+  group_by(ID, time, treatment) %>% 
+  summarise(mean = mean(outcome),
+            sd = sd(outcome),
+            se = sd/sqrt(n())) %>% 
+  ggplot(aes(x = ID, y = mean, col = treatment)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0, lwd = .5) +
+  labs(
+    title = "Data with both heterogenous b/w and w/i subj var "
+  )
+
+```
+
+### Fit the following models on each of these datasets
+
+1. simple LM
+2. LMM with random intercept per participant
+3. model with homogenous within var, but hetero between var
+4. model with hetero within and homo between
+5. model wigh both vars hetero
+6. alternative specification of 3. 
+7. nested random effects
+
+<details>
+  <summary>Click to expand!</summary>
+
+```{r}
+fit_mods <- function(df) {
+  
+  # simple lm 
+  a <- lm(outcome ~ day*time*treatment, data = df)
+  
+  b <- lme(fixed = outcome ~ day*time*treatment, 
+           random = ~ 1 | ID, 
+           data = df)
+  
+  # between participant variance for 
+  c <- lme(fixed = outcome ~ day*time*treatment, 
+           random = list(ID = pdDiag(form = ~ 0 + treatment)), 
+           data = df)
+  
+  # just different variance for different treatment (both between and within - not distinguishing)
+  d <- lme(fixed = outcome ~ day*time*treatment, 
+           random = ~ 1 | ID, 
+           data = df, 
+           weights = varIdent(form = ~ 1| treatment))
+  
+  # now distinguishing between
+  e <- lme(fixed = outcome ~ day*time*treatment, 
+           random = list(ID = pdDiag(form = ~ 0 + treatment)), 
+           data = df, 
+           weights = varIdent(form = ~ 1| treatment))
+  
+  # now trying in lmer
+  f <- lmer(outcome ~ day*time*treatment + (0 + treatment | ID), data = df)
+  
+  
+  # try f
+  g <- lmer(outcome ~ day*time*treatment + (1 | treatment/ID), data = df)
+  
+  out <- list(a, b, c, d, e, f, g)
+  
+  map(out, print)
+  return(invisible(out))
+}
+
+homohomo_mod <- fit_mods(df = df_homo)
+homo_mod <- fit_mods(df = df_homo_group)
+wi_mods <- fit_mods(df = df_wi)
+bw_mods <- fit_mods(df = df_bw)
+both_mods <- fit_mods(df = df_both)
+
+
+```
+
+</details>
+
+### Compare all these models with AIC
+
+```{r}
+tibble(
+  model = c("1. simple lm", 
+            "2. random subj intercept (grp str)", 
+            "3. Within var homo, BTW var hetero) (I think)", 
+            "4. gls for var and random subj intercept (WI var hetero, btw homo)",
+            "5. both the above (WI and BTW both hetero)", 
+            "6. rand intercept w/ lmer (BTW) - alternative specification of 3",
+            "7. lmer but nested (?) - trying something else"),
+  homohomo = map_dbl(homohomo_mod, AIC),
+  homogroup = map_dbl(homo_mod, AIC),
+  wthn = map_dbl(wi_mods, AIC),
+  btwn = map_dbl(bw_mods, AIC),  
+  both = map_dbl(both_mods, AIC),   
+
+          
+) %>%  as.data.frame() %>%  
+  flextable() %>% 
+  bg(i = ~ homohomo == min(homohomo), j = 2, bg = "#EFEF99")%>% 
+  bg(i = ~ homogroup == min(homogroup), j = 3, bg = "#EFEF99") %>% 
+  bg(i = ~ wthn == min(wthn), j = 4, bg = "#EFEF99") %>% 
+  bg(i = ~ btwn == min(btwn), j = 5, bg = "#EFEF99") %>% 
+  bg(i = ~ both == min(both), j = 6, bg = "#EFEF99")
+  
+```
+
+## Comparing variance
+
+Assume that the data is that there greater within subj variation  in treatment 
+group. but not between subj variance. 
+We will thus use the `df_wi` data. As shown above, the best fitting model here,
+according to AIC, no surprise, is that which:
+
+- has a random intercept to account for the grouping structure (individuals with multiple measures). This random intercept however, is drawn from the one distribution, regardless of whether the participant was in the treatment or control group (i.e. homogeneous between subject variance).
+- at the individual within subject level, has different variance for different treatment groups
+
+Let's have a look at the model
+
+```{r}
+mod <- wi_mods[[4]]
+mod %>%  summary()
+```
+
+You'll notice that the model estimates the variance in the drug group is (they are reported as the proportion of total model variance for identifiability reasons, but we can easily do the math to get the absolute numbers):
+
+```{r}
+extract_vars_gls(mod)
+```
+
+Okay, that seems like a pretty big difference (no doubt because we simulated the data to have a large difference in variance). But is it significant? 
+
+To find out, lets do a likelihood ratio test comparing it to the same model but 
+with homogenous variance within participants.
+
+```{r}
+mod0 <- wi_mods[[2]]
+
+anova(mod0, mod)
+```
+
+Okay, this is excellent, this difference is statisically significant. One final check,
+Is the model that has different within and between variance a better fit. 
+
+```{r}
+mod_both <- wi_mods[[5]]
+
+anova(mod0, mod, mod_both)
+```
+
+No. Excellent, so we have now established with our model that we have a significant difference between the variance of the two groups. Since variance is multiplicative, it makes sense to take an effect size of the difference as the ratio of the variance in the treatment group than in the control group. 
+
+```{r}
+v <- extract_var_gls(mod)
+
+v[[1]]/v[[2]]
+```
+
+We thus
+
+## comparing RCI events. 
+
+So we have showed above that there is a significantly greater variance in the drug group than the placebo group, by a factor of about 1.5, even after accounting for all other effects in the model. Now we turn to a similar but related question -- Were there more incidences of substantial change in cognition in the treatment group than in the control group. 
+
+To answer this question, we will get model predictions for each individual, construct prediction intervals around them (using the placebo group SD), and then count, for each individual how many such events there were. 
+
+We can take a few approaches. 
+
+1. The first is the most simple. Here we can just add a fixed amount of variation to the. This assumes the model is correct, and that the random effects are fixed. Thus the only source of variation is the within subjects
+2. The second is to properly calculate the predition interval, which also takes into account the uncertainty around the model effects. This is not the 
+3. to properly bootstrap right from the start. Randomly draw the random effect
+
+For our purposes, it is okay to assume the model and fixed effects are ok, so we will just do the first approach. 
+
+```{r}
+preds <- predict(mod)
+
+qt(c(0.025, 0.975), df = 5394) # sample size is large enough, just do normal
+
+#because they are same participants we assume a fixed random intercept component. 
+Pred_int95 <- tibble(
+  pred = predict(mod),
+  lwr_pi = pred + qnorm(0.025)*v[1],
+  upr_pi = pred + qnorm(0.975)*v[1]
+)
+
+# get table of outcomes
+d_preds <- df_wi %>% 
+  cbind(Pred_int95) %>% 
+  mutate(
+    is_lwr = outcome < lwr_pi,
+    is_upr = outcome > upr_pi,
+    is_out = is_lwr | is_upr
+  )
+
+#jsut compare N between treatment groups 
+d_rci_tot <- d_preds %>% 
+  group_by(treatment) %>% 
+  summarise(
+    across(
+      is_lwr:is_out,
+      .fns = sum, 
+      .names = "n_{.col}"
+    )
+  )
+
+
+# now, given dependencies for subjects we really want to know how many diff subjects had
+d_rci_subj <- d_preds %>% 
+  group_by(treatment, ID) %>% 
+  summarise(
+    across(
+      is_lwr:is_out,
+      .fns = sum, 
+      .names = "n_{.col}"
+    ) 
+  ) %>%  
+  ungroup()
+
+# look at the distribution 
+d_rci_subj %>% 
+  pivot_longer(
+    n_is_lwr:n_is_out,
+    names_to = "type", 
+    values_to = "n"
+    ) %>% 
+  ggplot(aes(x = n, fill = treatment)) +
+  geom_histogram(position = "identity", alpha = 0.25, binwidth = 1, col = "black") +
+  facet_wrap(~type)
+
+# distributions highly skewed, needto de some poisson regression here, or just mann whitney, non-parametric. 
+
+
+```
+
+
+
+```{r}
+# great explanation of the Wald test as marginal
+# https://stats.stackexchange.com/questions/59879/logistic-regression-anova-chi-square-test-vs-significance-of-coefficients-ano
+anova(mod, type ="marginal")
+```
+
+
+`r if (params$session_summary) "# Session information\n\n<details>\n\n<summary>Show session information</summary>\n\n"`
+
+```{r session_summary, echo=FALSE, eval=params$session_summary, include=params$session_summary, R.options=list(width=110)}
+devtools::session_info()
+```
+
+`r if (params$session_summary) "\n\n</details>\n\n"`
