@@ -26,4 +26,8 @@ ggplot(d, aes(x = zpre, y = change, color = treat)) +
 #models
 lm(change ~ zpre + treat, data = d) |> summary()
 lm(change ~ zpre*treat, data = d) |> summary()
-              
+
+#Ran a quick simulation or two after our discussion about interaction v no interaction. 
+
+#Tldr; ATE estimate is remarkably close between the two methods (although not identical) 
+#but decent variance gain for including interaction (in cases where there really is an interaction #between pre score and treatment, which is normally the case for our stuff). 
