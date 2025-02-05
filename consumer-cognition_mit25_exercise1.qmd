@@ -1,11 +1,11 @@
 ---
 title: "Exercise 1 -- Random Walk approximation of Drift Diffusion Model"
-subtitle: "17.838: Consumer Cognition"
+subtitle: "15.838: Consumer Cognition"
 date: "February 11, 2025"
 author: Josh White
 execute:
   warning: false
-  cache: true
+  cache: false
 format:
   pdf:
     #toc: true
@@ -39,31 +39,29 @@ include-before-body:
 #| warning: false
 
 # Load packages
-library(tidyverse) # data manipulation, ggplot
-library(gtsummary) # beautiful tables
-library(sensemakr) # for sensitivy analysis
+library(tidyverse)
 library(ggdist)
 
+# set ggplot theme
 theme_set(theme_bw() + theme(legend.position = "none"))
+
+#set figure size in chunks
+knitr::opts_chunk$set(fig.width=6, fig.height=4)
 ```
 
 # Question 1
 
+First define functions to use throughout the exercise.
+
 ```{r}
-# set model parameters
-mu <- 0.5    # drift rate 
-a <- 3     # boundary separation
-tau <- 0.01 # time-step
-sigma <- 1  # noise
-
-# get p, q, z and delta
-p <- 0.5 * (1 + (mu * sqrt(tau) / sigma))
-q <- 0.5 * (1 - (mu * sqrt(tau) / sigma))
-z <- a / 2
-delta <- sigma * sqrt(tau)
-
-# functions for random walk 
-random_walk <- function(p, q, z, delta) {
+# complete 1 random walk
+random_walk <- function(mu, a, tau, sigma = 1) {
+  # calculate p, q, z, and delta
+  p <- 0.5 * (1 + (mu * sqrt(tau) / sigma))
+  q <- 0.5 * (1 - (mu * sqrt(tau) / sigma))
+  z <- a / 2
+  delta <- sigma * sqrt(tau)
+  
   # initialize variables
   x <- z
   t <- 0
@@ -87,52 +85,152 @@ random_walk <- function(p, q, z, delta) {
   list(
     positions = positions,
     decision = ifelse(x <= 0, "incorrect", "correct"),
-    time = t * tau
+    time = t * tau,
+    p = p, 
+    q = q,
+    delta = delta
   )
 }
 
-## run simulations 
-n_sims <- 1000
-sims <- tibble::tibble(
-  sim = 1:n_sims,
-  random_walk = purrr::map(sim, ~random_walk(p, q, z, delta)),
-  decision = purrr::map_chr(random_walk, "decision"),
-  time = purrr::map_dbl(random_walk, "time")
-)
+# Simulate n random walks
+sim_n_randomwalks <- function(mu, a, tau, sigma = 1, n = 1000) {
+  tibble::tibble(
+    sim = 1:n,
+    random_walk = purrr::map(sim, ~random_walk(mu, a, tau)),
+    decision = purrr::map_chr(random_walk, "decision"),
+    time = purrr::map_dbl(random_walk, "time")
+  )
+}
+
+```
+
+Set parameters, simulate and plot. 
+
+```{r}
+# set model parameters
+mu <- 0.5   # drift rate 
+a <- 3      # boundary
+tau <- 0.01 # time-step
+sigma <- 1  # noise
+
+# set n simulations
+nsims <- 1000
+
+# Run simulations 
+sims <- sim_n_randomwalks(mu, a, tau, n = nsims)
 
 ## plot RT distributions
-## Struggles to plot density over it so just do it separately
-sims %>%
+
+# make histogram
+plot <- sims %>%
   ggplot(aes(x = time)) +
-  geom_histogram(aes(fill = decision), color = "black") +
+  geom_histogram(aes(fill = decision), color = "black", bins = 30) +
   facet_wrap(~decision) +
   labs(
     title = "RT Distributions for Random Walk Approximation of DDM",
-    subtitle = bquote(mu == .(mu) * ", " ~ a == .(a) * ", " ~ tau == .(tau) * ", " ~ sigma == .(sigma)),
+    subtitle = bquote(u == .(mu) * ", " ~ a == .(a) * ", " ~ tau == .(tau) * ", " ~ sigma == .(sigma)),
     x = "Response time",
     y = "Frequency"
   ) 
 
-## 
-plot_rt <- function(d) {
-  d |> 
-    ggplot(aes(x = time)) +
-    stat_slab(
-      density = "histogram", fill = "skyblue",
-      breaks = 30
-    ) +
-    stat_slab(, fill = NA, color = "black")
-}
+# calculate density and scale to frequency
+dens_df <- sims %>%
+  group_by(decision) %>%
+  summarise(
+    density = list(density(time)), 
+    n = n(), 
+    bin_width = diff(range(time)) / 30,
+    .groups = "drop"
+  ) %>%
+  mutate(x = map(density, "x"), y = map(density, "y")) %>%
+  select(-density) |> 
+  unnest(cols = c(x, y)) %>%
+  mutate(y = y * n * bin_width)
 
+# save xlims for later use
+xlims0 <- range(sims$time)
 
-plot_rt(sims[sims$decision == "correct", ])
-plot_rt(sims[sims$decision == "incorrect", ])
+# final plot
+plot + 
+  geom_line(data = dens_df, aes(x = x, y = y), color = "black", size = 1)
+```
 
+The probability of a correct response is estimated as `r mean(sims$decision == "correct")`. The probability of an incorrect response is estimated as `r mean(sims$decision == "incorrect")`.
 
+## Question 2
 
+```{r}
+mu <- mu * 2 # double drift rate
+sims <- sim_n_randomwalks(mu, a, tau, n = nsims) # run simulations
 
-
+## plot RT distributions
+sims %>%
+  ggplot(aes(x = time)) +
+  geom_histogram(aes(fill = decision), color = "black", bins = 30) +
+  facet_wrap(~decision) +
+  labs(
+    title = "RT Distributions for Random Walk Approximation of DDM",
+    subtitle = bquote(u == .(mu) * ", " ~ a == .(a) * ", " ~ tau == .(tau) * ", " ~ sigma == .(sigma)),
+    x = "Response time",
+    y = "Frequency"
+  ) + 
+  geom_line(data = dens_df, aes(x = x, y = y), color = "black", size = 1) +
+  scale_x_continuous(limits = xlims0)
 
 ```
 
-The above histogram shows the reaction time distributions for a random walk approximation of the drift diffusion model. The model parameters are set as follows: drift rate = 0.5, boundary separation = 3, time-step = 0.01, and noise = 1. The histogram shows the distribution of reaction times for 1000 simulations of the model. The model predicts that correct responses will be faster than incorrect responses, which is reflected in the histogram.
+Doubling the drift rate has two major effect. First, the mean response time is reduced. Second, the probability of a correct response is increased.
+
+# Question 3
+
+```{r}
+a <- a * 2 # double boundary
+mu <- 0.5  # reset drift rate
+
+sims <- sim_n_randomwalks(mu, a, tau, n = nsims) # run simulations
+
+## plot RT distributions
+sims %>%
+  ggplot(aes(x = time)) +
+  geom_histogram(aes(fill = decision), color = "black", bins = 30) +
+  facet_wrap(~decision) +
+  labs(
+    title = "RT Distributions for Random Walk Approximation of DDM",
+    subtitle = bquote(u == .(mu) * ", " ~ a == .(a) * ", " ~ tau == .(tau) * ", " ~ sigma == .(sigma)),
+    x = "Response time",
+    y = "Frequency"
+  ) + 
+  geom_line(data = dens_df, aes(x = x, y = y), color = "black", size = 1) +
+  scale_x_continuous(limits = xlims0)
+
+sims |> count(decision)
+
+```
+
+Doubling the boundary increased response times, flattened the RT distributions, and increased the probability of an incorrect response. 
+
+# Question 4
+
+```{r}
+tau <- tau / 10 # Divide time-step by 10
+a <- 3         # reset boundary
+
+sims <- sim_n_randomwalks(mu, a, tau, n = nsims) # run simulations
+
+## plot RT distributions
+sims %>%
+  ggplot(aes(x = time)) +
+  geom_histogram(aes(fill = decision), color = "black", bins = 30) +
+  facet_wrap(~decision) +
+  labs(
+    title = "RT Distributions for Random Walk Approximation of DDM",
+    subtitle = bquote(u == .(mu) * ", " ~ a == .(a) * ", " ~ tau == .(tau) * ", " ~ sigma == .(sigma)),
+    x = "Response time",
+    y = "Frequency"
+  ) + 
+  geom_line(data = dens_df, aes(x = x, y = y), color = "black", size = 1) +
+  scale_x_continuous(limits = xlims0)
+
+```
+
+Significantly reducing the time-step increased computation time by a lot, but also increased the approximation accuracy. 
