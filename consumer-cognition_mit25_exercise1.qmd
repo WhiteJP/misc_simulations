@@ -1,6 +1,6 @@
 ---
-title: "Exercise 1 -- Random Walk approximation of Drift Diffusion Model""
-subtitle: "17.802: Quantitative Research Methods II"
+title: "Exercise 1 -- Random Walk approximation of Drift Diffusion Model"
+subtitle: "17.838: Consumer Cognition"
 date: "February 11, 2025"
 author: Josh White
 execute:
