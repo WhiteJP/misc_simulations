@@ -1,0 +1,138 @@
+---
+title: "Exercise 1 -- Random Walk approximation of Drift Diffusion Model""
+subtitle: "17.802: Quantitative Research Methods II"
+date: "February 11, 2025"
+author: Josh White
+execute:
+  warning: false
+  cache: true
+format:
+  pdf:
+    #toc: true
+    df-print: kable
+    fig-align: center
+    fig-width: 4
+    fig-height: 4
+    fontsize: 9pt
+    monofont: 'Source Code Pro'
+    monofontoptions: 
+    - Scale=0.666
+#. Following allows for code and output to be wrapped .#
+    include-in-header: 
+       text: |
+         \usepackage{fvextra}
+         \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+include-before-body:
+  text: |
+    \RecustomVerbatimEnvironment{verbatim}{Verbatim}{
+      showspaces = false,
+      showtabs = false,
+      breaksymbolleft={},
+      breaklines
+      % Note: setting commandchars=\\\{\} here will cause an error 
+    }
+---
+
+```{r}
+#| label: setup
+#| echo: false
+#| warning: false
+
+# Load packages
+library(tidyverse) # data manipulation, ggplot
+library(gtsummary) # beautiful tables
+library(sensemakr) # for sensitivy analysis
+library(ggdist)
+
+theme_set(theme_bw() + theme(legend.position = "none"))
+```
+
+# Question 1
+
+```{r}
+# set model parameters
+mu <- 0.5    # drift rate 
+a <- 3     # boundary separation
+tau <- 0.01 # time-step
+sigma <- 1  # noise
+
+# get p, q, z and delta
+p <- 0.5 * (1 + (mu * sqrt(tau) / sigma))
+q <- 0.5 * (1 - (mu * sqrt(tau) / sigma))
+z <- a / 2
+delta <- sigma * sqrt(tau)
+
+# functions for random walk 
+random_walk <- function(p, q, z, delta) {
+  # initialize variables
+  x <- z
+  t <- 0
+  positions <- numeric()
+  
+  # run random walk
+  while (x > 0 & x < a) {
+    # update time
+    t <- t + 1
+    # update position
+    if (runif(1) < p) {
+      x <- x + delta
+    } else {
+      x <- x - delta
+    }
+    # keep position
+    positions <- c(positions, x)
+  }
+  
+  # return list with position vector, decision, and decision time
+  list(
+    positions = positions,
+    decision = ifelse(x <= 0, "incorrect", "correct"),
+    time = t * tau
+  )
+}
+
+## run simulations 
+n_sims <- 1000
+sims <- tibble::tibble(
+  sim = 1:n_sims,
+  random_walk = purrr::map(sim, ~random_walk(p, q, z, delta)),
+  decision = purrr::map_chr(random_walk, "decision"),
+  time = purrr::map_dbl(random_walk, "time")
+)
+
+## plot RT distributions
+## Struggles to plot density over it so just do it separately
+sims %>%
+  ggplot(aes(x = time)) +
+  geom_histogram(aes(fill = decision), color = "black") +
+  facet_wrap(~decision) +
+  labs(
+    title = "RT Distributions for Random Walk Approximation of DDM",
+    subtitle = bquote(mu == .(mu) * ", " ~ a == .(a) * ", " ~ tau == .(tau) * ", " ~ sigma == .(sigma)),
+    x = "Response time",
+    y = "Frequency"
+  ) 
+
+## 
+plot_rt <- function(d) {
+  d |> 
+    ggplot(aes(x = time)) +
+    stat_slab(
+      density = "histogram", fill = "skyblue",
+      breaks = 30
+    ) +
+    stat_slab(, fill = NA, color = "black")
+}
+
+
+plot_rt(sims[sims$decision == "correct", ])
+plot_rt(sims[sims$decision == "incorrect", ])
+
+
+
+
+
+
+```
+
+The above histogram shows the reaction time distributions for a random walk approximation of the drift diffusion model. The model parameters are set as follows: drift rate = 0.5, boundary separation = 3, time-step = 0.01, and noise = 1. The histogram shows the distribution of reaction times for 1000 simulations of the model. The model predicts that correct responses will be faster than incorrect responses, which is reflected in the histogram.
