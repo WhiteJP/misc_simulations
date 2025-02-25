@@ -1,5 +1,5 @@
 ---
-title: "Exercise 2 -- Random Walk approximation of Drift Diffusion Model"
+title: "Exercise 2 -- Gaussian Bayesian Updating and the Rescorla-Wagner Model"
 subtitle: "15.838: Consumer Cognition"
 date: "March 4, 2025"
 author: Josh White
@@ -43,10 +43,10 @@ library(tidyverse)
 library(ggdist)
 
 # set ggplot theme
-theme_set(theme_bw() + theme(legend.position = "none"))
+theme_set(theme_classic() + theme(legend.position = "bottom"))
 
 #set figure size in chunks
-knitr::opts_chunk$set(fig.width=6, fig.height=4)
+knitr::opts_chunk$set(fig.width=3, fig.height=3, fig.align = "center")
 ```
 
 ## Question 1
