@@ -51,6 +51,14 @@ knitr::opts_chunk$set(fig.width=6, fig.height=4)
 
 ## Question 1
 
+To derive the Rescorla-Wagner update rule from Gaussian bayesian updating (with fixed variance), we first start be expressing this in terms of precision, given the known results that this is cojugate update. 
+
+$$
+
+$$
+
+\newpage
+
 ## Question 2
 
 ```{r}
