@@ -1,0 +1,109 @@
+---
+title: "Exercise 2 -- Random Walk approximation of Drift Diffusion Model"
+subtitle: "15.838: Consumer Cognition"
+date: "March 4, 2025"
+author: Josh White
+execute:
+  warning: false
+  cache: false
+format:
+  pdf:
+    #toc: true
+    df-print: kable
+    fig-align: center
+    fig-width: 4
+    fig-height: 4
+    fontsize: 9pt
+    monofont: 'Source Code Pro'
+    monofontoptions: 
+    - Scale=0.666
+#. Following allows for code and output to be wrapped .#
+    include-in-header: 
+       text: |
+         \usepackage{fvextra}
+         \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+include-before-body:
+  text: |
+    \RecustomVerbatimEnvironment{verbatim}{Verbatim}{
+      showspaces = false,
+      showtabs = false,
+      breaksymbolleft={},
+      breaklines
+      % Note: setting commandchars=\\\{\} here will cause an error 
+    }
+---
+
+```{r}
+#| label: setup
+#| echo: false
+#| warning: false
+
+# Load packages
+library(tidyverse)
+library(ggdist)
+
+# set ggplot theme
+theme_set(theme_bw() + theme(legend.position = "none"))
+
+#set figure size in chunks
+knitr::opts_chunk$set(fig.width=6, fig.height=4)
+```
+
+## Question 1
+
+## Question 2
+
+```{r}
+v_true <- 10
+mu_0 <- 0
+var_0 <- 25
+var_r <- 16
+
+n <- 100
+r_t <- rnorm(n, mean = v_true, sd = sqrt(var_r))
+
+bayesian_update <- function(r_t, mu_0, var_0) {
+  v_hat <- numeric(length(r_t) + 1)
+  v_hat[1] <- mu_0
+  for (t in 1:length(r_t)) {
+    v_hat[t+1] <- v_hat[t] + (r_t[t] - v_hat[t]) / (var_0 + var_r)
+  }
+  v_hat
+
+}
+
+
+bayesian_update(r_t, mu_0, var_0)
+
+# run sims 
+n_sims <- 100
+sims <- tibble::tibble(
+  sim = 1:n_sims,
+  t = map(1:n_sims, ~0:n),
+  r_t = map(1:n_sims, ~rnorm(n, mean = v_true, sd = sqrt(var_r))),
+  u_t = map(r_t, ~bayesian_update(.x, mu_0, var_0))
+  ) 
+sims_unnested <- unnest(sims, c(u_t, t))
+
+mean_u_t <- sims_unnested %>%
+  group_by(t) %>%
+  summarise(
+    mean_u_t = mean(u_t),
+    sd_u_t = sd(u_t),
+    ci_high = mean_u_t + 1.96 * sd_u_t,
+    ci_low = mean_u_t - 1.96 * sd_u_t
+    )
+
+# show trajectories
+sims_unnested |> 
+  ggplot(aes(x = t, y = u_t)) +
+  geom_line(aes(group = sim), col = "grey", alpha = 0.25) +
+  geom_line(data = mean_u_t, aes(x = t, y = mean_u_t), col = "black", lwd = 1)
+
+# show CI as shaded region
+mean_u_t |> 
+  ggplot(aes(x = t, y = mean_u_t)) +
+  geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = 0.25) +
+  geom_line(col = "black")
+  
+```
