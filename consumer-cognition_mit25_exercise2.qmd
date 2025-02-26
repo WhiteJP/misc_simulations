@@ -57,7 +57,6 @@ knitr::opts_chunk$set(fig.width=3, fig.height=3, fig.align = "center")
 
 ## Question 1
 
-To derive the Rescorla-Wagner update rule from Gaussian bayesian updating (with fixed variance), we first start be expressing this in terms of precision, given the known results that this is cojugate update. 
 To derive the Rescorla-Wagner update rule from Gaussian Bayesian updating (with fixed variance), we first start be expressing the conjugate posterior after $n$ observations, in terms of precision of the reward $\tau_r$, the reward trajectory, $r_t$ $\forall t\in [1, n]$, and prior mean, $\mu_0$ and precision, $\tau_0$:
 
 $$
@@ -111,7 +110,8 @@ bayesian_update <- function(n, v_true, mu_0, var_0, var_r) {
   mu <- numeric(n + 1) # posterior at each timestep
   mu[1] <- mu_0        # at t = 0, posterior is prior
   
-  tau <- numeric(n)     # precision at each timestep
+  tau <- numeric(n + 1)     # precision at each timestep
+  tau[1] <- tau_0      # at t = 0, precision is prior precision
   alpha <- numeric(n)   # learning rate at each timestep
   
   # get reward at each time step
@@ -119,11 +119,9 @@ bayesian_update <- function(n, v_true, mu_0, var_0, var_r) {
   
   # update posterior at each time step
   for (t in seq_len(n)) {
-      tau[t] <- tau_0 + t*tau_r # get precision
-      alpha[t] <- tau_r / (tau_0 + (t+1)*tau_r) # get learning rate
-      
-      # update according to Rescorla-Wagner/ TD(0)
-      mu[t+1] <- mu[t] + alpha[t] * (r[t] - mu[t]) 
+      tau[t+1] <- tau[t] + tau_r # update precision
+      alpha[t] <- tau_r / tau[t+1] # learning rate
+      mu[t+1] <- mu[t] + alpha[t] * (r[t] - mu[t]) # update according to Rescorla-Wagner/TD(0)
   }
   mu
 }
@@ -232,7 +230,7 @@ sims |>
   annotate("text", x = 2, y = 10.5, label = expression(v[true]), col = "red", fontface = "bold")
 ```
 
-## Varying likelihood variance
+## Varying reward / likelihood variance
 
 Now we run the simulations and plot for different likelihood (reward) variances.
 
@@ -264,7 +262,7 @@ sims |>
   geom_hline(yintercept = v_true, col = "red", lty = 2) +
   annotate("text", x = 2, y = 10.5, label = expression(v[true]), col = "red", fontface = "bold")
 ```
-Because this is hard to see on the same plot (as the average posterior means are similar, with widely differing variances), we will plot these in separate panels.
+Because this is hard to see on the same plot, we will plot these in separate panels.
 
 ```{r, fig.width=6}
 # plot
@@ -288,6 +286,8 @@ sims |>
 
 From these analyses, we can see the following patterns:
 
-1. Regardless of the prior variance, $\sigma_0^2$, or the likelihood variance, $\sigma_r^2$, we converge to the true value in expectation (this is more obvious with more timesteps).
-2. The prior variance, $\sigma_0^2$, has a large impact on the rate of convergence. When the prior variance is high, the posterior mean converges to the true value more quickly (it is quicker to update beliefs when they are less certain).
-3. The likelihood variance, $\sigma_r^2$, has a large impact on posterior variance. When this is high, posterior variance is high. The likelihood variance also has an effect on the rate of convergence, with lower likelihood variance leading to faster convergence of the posterior mean to the true value.
+1. Regardless of the prior variance, $\sigma_0^2$, or the reward variance, $\sigma_r^2$, we converge to the true value in expectation (this is more obvious with more timesteps).
+2. The prior variance, $\sigma_0^2$, has a large impact on the rate of convergence / learning. All else equal, when the prior variance is higher, the posterior mean converges to the true value more quickly (it is quicker to update beliefs when they are less certain).
+3.  The reward variance, $\sigma_r^2$, has an effect on the rate of convergence / learning, with lower variance leading to faster convergence of the posterior mean to the true value. The reward variance also has a large impact on posterior variance. When this is high, posterior variance is high.
+
+All of these results are exactly what you would expect given the mathematical expression of the learning rate from Question 1 above. See the analyses therein. 
