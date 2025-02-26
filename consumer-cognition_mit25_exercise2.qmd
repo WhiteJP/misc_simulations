@@ -43,7 +43,13 @@ library(tidyverse)
 library(ggdist)
 
 # set ggplot theme
-theme_set(theme_classic() + theme(legend.position = "bottom"))
+theme_set(
+  theme_classic() + 
+  theme(
+    legend.position = "bottom", 
+    text = element_text(size = 9)
+  )
+)
 
 #set figure size in chunks
 knitr::opts_chunk$set(fig.width=3, fig.height=3, fig.align = "center")
@@ -61,57 +67,203 @@ $$
 
 ## Question 2
 
+### (a)
+
+First set parameters, and write function to do iterative Bayesian updates for n time steps.
+
 ```{r}
-v_true <- 10
-mu_0 <- 0
-var_0 <- 25
-var_r <- 16
+n <- 50      # number of time steps (T often Boolean in R)
+v_true <- 10 # true mean
+mu_0 <- 0    # prior mean
+var_0 <- 25  # prior variance
+var_r <- 16  # reward/likelihood variance
 
-n <- 100
-r_t <- rnorm(n, mean = v_true, sd = sqrt(var_r))
-
-bayesian_update <- function(r_t, mu_0, var_0) {
-  v_hat <- numeric(length(r_t) + 1)
-  v_hat[1] <- mu_0
-  for (t in 1:length(r_t)) {
-    v_hat[t+1] <- v_hat[t] + (r_t[t] - v_hat[t]) / (var_0 + var_r)
+bayesian_update <- function(n, v_true, mu_0, var_0, var_r) {
+  # convert var to precision
+  tau_0 <- 1 / var_0 
+  tau_r <- 1 / var_r
+    
+  # intialize relevant vars
+  mu <- numeric(n + 1) # posterior at each timestep
+  mu[1] <- mu_0        # at t = 0, posterior is prior
+  
+  tau <- numeric(n)     # precision at each timestep
+  alpha <- numeric(n)   # learning rate at each timestep
+  
+  # get reward at each time step
+  r <- rnorm(n, mean = v_true, sd = sqrt(var_r))
+  
+  # update posterior at each time step
+  for (t in seq_len(n)) {
+      tau[t] <- tau_0 + t*tau_r # get precision
+      alpha[t] <- tau_r / (tau_0 + (t+1)*tau_r) # get learning rate
+      
+      # update according to Rescorla-Wagner/ TD(0)
+      mu[t+1] <- mu[t] + alpha[t] * (r[t] - mu[t]) 
   }
-  v_hat
-
+  mu
 }
+```
 
+Then run simulations and plot. First showing each trajectory (in light grey) with mean, then showing mean and 95% CI. 
 
-bayesian_update(r_t, mu_0, var_0)
-
+```{r}
 # run sims 
 n_sims <- 100
 sims <- tibble::tibble(
   sim = 1:n_sims,
   t = map(1:n_sims, ~0:n),
-  r_t = map(1:n_sims, ~rnorm(n, mean = v_true, sd = sqrt(var_r))),
-  u_t = map(r_t, ~bayesian_update(.x, mu_0, var_0))
+  mu = map(sim, ~bayesian_update(n, v_true, mu_0, var_0, var_r))
   ) 
-sims_unnested <- unnest(sims, c(u_t, t))
+sims_unnested <- unnest(sims, c(mu, t))
 
-mean_u_t <- sims_unnested %>%
+# get mean and CI across trajectories at each time step
+mean_mu <- sims_unnested %>%
   group_by(t) %>%
   summarise(
-    mean_u_t = mean(u_t),
-    sd_u_t = sd(u_t),
-    ci_high = mean_u_t + 1.96 * sd_u_t,
-    ci_low = mean_u_t - 1.96 * sd_u_t
+    mean_mu = mean(mu),
+    sd_mu = sd(mu),
+    ci_high = mean_mu + 1.96 * sd_mu,
+    ci_low = mean_mu - 1.96 * sd_mu
     )
 
 # show trajectories
 sims_unnested |> 
-  ggplot(aes(x = t, y = u_t)) +
+  ggplot(aes(x = t, y = mu)) +
   geom_line(aes(group = sim), col = "grey", alpha = 0.25) +
-  geom_line(data = mean_u_t, aes(x = t, y = mean_u_t), col = "black", lwd = 1)
+  geom_line(data = mean_mu, aes(x = t, y = mean_mu), col = "black", lwd = 1) +
+  scale_y_continuous(breaks = seq(0, 15, 2.5)) +
+  labs(y = expression(mu[t]), x = "Time (t)") +
+  geom_hline(yintercept = v_true, col = "red", lty = 2) +  
+  annotate("text", x = 2, y = 10.5, label = expression(v[true]), col = "red", fontface = "bold")
+
 
 # show CI as shaded region
-mean_u_t |> 
-  ggplot(aes(x = t, y = mean_u_t)) +
+ggplot(mean_mu, aes(x = t, y = mean_mu)) +
   geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = 0.25) +
-  geom_line(col = "black")
-  
+  geom_line(col = "black") +
+  scale_y_continuous(breaks = seq(0, 15, 2.5)) +
+  labs(y = expression(mu[t]), x = "Time (t)") +
+  geom_hline(yintercept = v_true, col = "red", lty = 2) +
+  annotate("text", x = 2, y = 10.5, label = expression(v[true]), col = "red", fontface = "bold")
 ```
+
+\newpage 
+
+### (b)
+
+First, create function to output mean and SE of simulations.  
+
+```{r}
+get_sim_mean_se <- function(n_sims, n, v_true, mu_0, var_0, var_r) {
+  sims <- tibble::tibble(
+    sim = 1:n_sims,
+    t = map(1:n_sims, ~ 0:n),
+    mu = map(sim, ~bayesian_update(n, v_true, mu_0, var_0, var_r))
+  ) 
+  sims_unnested <- unnest(sims, c(mu, t))
+  
+  mean_mu <- sims_unnested %>%
+    group_by(t) %>%
+    summarise(
+      mean_mu = mean(mu),
+      sd_mu = sd(mu),
+      ci_high = mean_mu + 1.96 * sd_mu,
+      ci_low = mean_mu - 1.96 * sd_mu
+    )
+  mean_mu
+}
+```
+
+## Varying prior variance
+
+Now run simulations and plot for different values of prior variance. 
+
+```{r}
+# set params
+params <- tidyr::expand_grid(n_sims, n, v_true, mu_0, var_0 = c(1, 25, 100), var_r = 16)
+
+# run sims
+sims <- params %>%
+  mutate(
+    results = pmap(
+      list(n_sims = n_sims, n, v_true, mu_0, var_0, var_r), 
+      get_sim_mean_se
+      )
+  )
+
+# plot
+sims |> 
+  unnest(results) |> 
+  ggplot(aes(x = t, y = mean_mu, group = var_0)) +
+  geom_line(aes(col = as.factor(var_0))) +
+  geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = 0.25) +
+  scale_y_continuous(breaks = seq(0, 15, 2.5)) +
+  labs(
+    x = "Time (t)",
+    y = expression(mu[t]), 
+    col = expression(sigma[0]^2)
+  ) +
+  geom_hline(yintercept = v_true, col = "red", lty = 2) +
+  annotate("text", x = 2, y = 10.5, label = expression(v[true]), col = "red", fontface = "bold")
+```
+
+## Varying likelihood variance
+
+Now we run the simulations and plot for different likelihood (reward) variances.
+
+```{r}
+# set params
+params <- tidyr::expand_grid(n_sims, n, v_true, mu_0, var_0, var_r = c(1, 25, 100))
+
+# run sims
+sims <- params %>%
+  mutate(
+    results = pmap(
+      list(n_sims, n, v_true, mu_0, var_0, var_r),
+      get_sim_mean_se
+    )
+  )
+
+# plot
+sims |> 
+  unnest(results) |> 
+  ggplot(aes(x = t, y = mean_mu, group = var_r)) +
+  geom_line(aes(col = as.factor(var_r))) +
+  geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = 0.25) +
+  scale_y_continuous(breaks = seq(0, 15, 2.5)) +
+  labs(
+    x = "Time (t)",
+    y = expression(mu[t]), 
+    col = expression(sigma[r]^2)
+  ) +
+  geom_hline(yintercept = v_true, col = "red", lty = 2) +
+  annotate("text", x = 2, y = 10.5, label = expression(v[true]), col = "red", fontface = "bold")
+```
+Because this is hard to see on the same plot (as the average posterior means are similar, with widely differing variances), we will plot these in separate panels.
+
+```{r, fig.width=6}
+# plot
+sims |> 
+  unnest(results) |> 
+  ggplot(aes(x = t, y = mean_mu, group = var_r)) +
+  geom_line(aes(col = as.factor(var_r))) +
+  geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = 0.25) +
+  facet_wrap(~var_r, labeller = label_both) +
+  scale_y_continuous(breaks = seq(0, 15, 2.5)) +
+  labs(
+    x = "Time (t)",
+    y = expression(mu[t]), 
+    col = expression(sigma[r]^2)
+  ) +
+  geom_hline(yintercept = v_true, col = "red", lty = 2) +
+  annotate("text", x = 4, y = 11, label = expression(v[true]), col = "red", fontface = "bold")
+```
+
+## Summary
+
+From these analyses, we can see the following patterns:
+
+1. Regardless of the prior variance, $\sigma_0^2$, or the likelihood variance, $\sigma_r^2$, we converge to the true value in expectation (this is more obvious with more timesteps).
+2. The prior variance, $\sigma_0^2$, has a large impact on the rate of convergence. When the prior variance is high, the posterior mean converges to the true value more quickly (it is quicker to update beliefs when they are less certain).
+3. The likelihood variance, $\sigma_r^2$, has a large impact on posterior variance. When this is high, posterior variance is high. The likelihood variance also has an effect on the rate of convergence, with lower likelihood variance leading to faster convergence of the posterior mean to the true value.
