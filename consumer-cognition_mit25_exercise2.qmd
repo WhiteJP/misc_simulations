@@ -58,10 +58,34 @@ knitr::opts_chunk$set(fig.width=3, fig.height=3, fig.align = "center")
 ## Question 1
 
 To derive the Rescorla-Wagner update rule from Gaussian bayesian updating (with fixed variance), we first start be expressing this in terms of precision, given the known results that this is cojugate update. 
+To derive the Rescorla-Wagner update rule from Gaussian Bayesian updating (with fixed variance), we first start be expressing the conjugate posterior after $n$ observations, in terms of precision of the reward $\tau_r$, the reward trajectory, $r_t$ $\forall t\in [1, n]$, and prior mean, $\mu_0$ and precision, $\tau_0$:
 
 $$
+\mu_{n} = \frac{\tau_0 \mu_0 + \tau_r \sum_{t = 1}^n r_t}{\tau_t + n\tau_r}
+$$
+Now we take this to the case of a single update from $t$ to $t+1$ (i.e., $n = 1$) and rearrange:
+
+\begin{align*}
+\mu_{t+1} &= \frac{\tau_t \mu_t + \tau_r r_t}{\tau_t + \tau_r} \\
+\mu_{t+1} &= \mu_t \frac{\tau_t}{\tau_t + \tau_r} + r_t \frac{\tau_r}{\tau_t + \tau_r} \\
+\mu_{t+1} &= \mu_t \frac{\tau_t}{\tau_t + \tau_r} + \mu_t \frac{\tau_r}{\tau_t + \tau_r} - \mu_t \frac{\tau_r}{\tau_t + \tau_r} + r_t \frac{\tau_r}{\tau_t + \tau_r}  \mu \\
+\mu_{t+1} &= \mu_t \left(\frac{\tau_t}{\tau_t + \tau_r} + \frac{\tau_r}{\tau_t + \tau_r} \right) - \mu_t \frac{\tau_r}{\tau_t + \tau_r} + r_t \frac{\tau_r}{\tau_t + \tau_r}  \mu \\
+\mu_{t+1} &= \mu_t - \mu_t \frac{\tau_r}{\tau_t + \tau_r} + r_t \frac{\tau_r}{\tau_t + \tau_r} \\
+\mu_{t+1} &= \mu_t + \frac{\tau_r}{\tau_t + \tau_r} (r_t - \mu_t) \quad \\
+\end{align*}
+
+
+This gives us the update in the same functional form as in the Rescorla-Wagner model, where the learning rate is $\alpha = \frac{\tau_r}{\tau_t + \tau_r}$, and the prediction error is $\delta_t = r_t - \mu_t$. Finally, we rearrange to get the result in terms of variance:
 
 $$
+\alpha = \frac{\tau_r}{\tau_t + \tau_r} = \frac{1/\sigma_r^2}{1/\sigma_t^2 + 1/\sigma_r^2} = \frac{\sigma_t^2}{\sigma_t^2 + \sigma_r^2}
+$$
+
+There are a few things to note about this:
+
+1. The learning rate fundamentally depends on uncertainty. When the prior variance is high relative to the reward variance, the learning rate is high -- a Bayesian agent relies heavily on new observations. When the reward variance is high relative to the prior variance, the learning rate is low -- a Bayesian agent relies more on prior beliefs, as the reward is comparatively less informative.
+2. The learning rate changes over time -- as the posterior variance is reduced over updates, so is the learning rate. This means that a rational agent updates their beliefs less over time.  This is in contrast to the Rescorla-Wagner model and many instantiations of RL algorithms, where the learning rate is often treated as fixed (although note the Robbins-Monro conditions for convergence of tabular Q-learning).
+3. This grounds Rescorla Wagner and TD(0) in a Bayesian framework, where the learning rate is a function of the relative uncertainty of the prior and the reward. This is a more general framework that can be extended to other models (e.g., TD($\lambda$) or other Bayesian models with different likelihoods or priors).
 
 \newpage
 
