@@ -1,0 +1,190 @@
+---
+title: "Exercise 3 -- Recreating simulations from Webb et al. (2022)"
+subtitle: "15.838: Consumer Cognition"
+date: "April 8, 2025"
+author: Josh White
+execute:
+  warning: false
+  cache: false
+format:
+  pdf:
+    #toc: true
+    df-print: kable
+    fig-align: center
+    fig-width: 4
+    fig-height: 4
+    fontsize: 9pt
+    monofont: 'Source Code Pro'
+    monofontoptions: 
+    - Scale=0.666
+#. Following allows for code and output to be wrapped .#
+    include-in-header: 
+       text: |
+         \usepackage{fvextra}
+         \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+include-before-body:
+  text: |
+    \RecustomVerbatimEnvironment{verbatim}{Verbatim}{
+      showspaces = false,
+      showtabs = false,
+      breaksymbolleft={},
+      breaklines
+      % Note: setting commandchars=\\\{\} here will cause an error 
+    }
+---
+
+```{r}
+#| label: setup
+#| echo: false
+#| warning: false
+
+# Load packages
+library(tidyverse)
+library(patchwork)
+
+# set ggplot theme
+theme_set(
+  theme_classic() + 
+  theme(
+    text = element_text(size = 9)
+  )
+)
+```
+
+## Question 1
+
+Following the simulations in the Webb et al. (2022) paper[^1], or at least as far as I can tell from it, we initialize the utilities at $t = 1$ as $u_{1, 1}$ and $u_{2, 1}$ as 70 and 65 respectively, and set the reward predictions as $r_{1, 1} = u_{1, 1}$ and $r_{2, 1} = u_{2, 1}$. We also start with the doubt stock $d_1$ high at 16 (above the doubt threshold, $\theta = 8$) so the agent starts in utility maximization mode. We add Gaussian noise to the underlying utilities with standard deviation of 1. 
+
+As in their simulations, there are two shocks to the underlying utilities at $t = 25$ and $t = 50$. At $t = 25$, the utility of option 2 increases to 75, strictly dominating option 1. However the agent is in habit mode and does not notice this, thus continuing to choose option 1, even thought it is suboptimal. At $t = 50$, however, the utility of option 1 decreases to 55, the shock to which is large enough to break the agent from habit mode and back into utility maximization mode, where they then choose option 2 (with the higher utility). 
+
+We also set the parameters $\lambda = 0.3$ and $\rho = 0.5$, which control the rate of doubt depreciation and reward prediction update respectively.
+ 
+[^1]: Webb, R., Zhao, C., Osborne, M., Landry, P., &Camerer, C. (2022). A Neuro-Autopilot Theory of Habit: Evidence from Canned Tuna. Rotman School of Management Working Paper, (4130496).
+
+
+```{r}
+set.seed(18838)
+
+# parameters
+lambda <- 0.3  # doubt depreciation
+rho <- 0.5     # reward prediction update
+theta <- 8     # doubt threshold
+u_sd <- 1      # utility noise
+time_horizon <- 100
+
+# base utility levels
+u_1_init <- 70
+u_2_init <- 65
+u25_2 <- 75
+u50_1 <- 55
+
+# true utility (mu) vectors
+mu_1 <- rep(u_1_init, time_horizon)
+mu_2 <- rep(u_2_init, time_horizon)
+
+# apply permanent shocks
+mu_2[25:time_horizon] <- u25_2
+mu_1[50:time_horizon] <- u50_1
+
+# initialize other vectors
+u_1 <- u_2 <- r_1 <- r_2 <- d <- y <- numeric(time_horizon)
+
+# initial utilities
+u_1[1] <- r_1[1] <- mu_1[1] + rnorm(1, 0, u_sd)
+u_2[1] <- r_2[1] <- mu_2[1] + rnorm(1, 0, u_sd)
+d[1] <- 16                            # high to start in utility max mode
+y[1] <- ifelse(u_1[1] > u_2[1], 1, 2) # utility maximize
+
+# simulate t = 2 to 100
+for (t in 2:time_horizon) {
+  # draw utilities with noise from true mu
+  u_1[t] <- mu_1[t] + rnorm(1, 0, u_sd)
+  u_2[t] <- mu_2[t] + rnorm(1, 0, u_sd)
+
+  # reward prediction update
+  if (y[t-1] == 1) {
+    r_1[t] <- (1 - rho) * r_1[t-1] + rho * u_1[t-1]
+    r_2[t] <- r_2[t-1]
+  } else {
+    r_2[t] <- (1 - rho) * r_2[t-1] + rho * u_2[t-1]
+    r_1[t] <- r_1[t-1]
+  }
+
+  # doubt update
+  if (y[t-1] == 1) {
+    d[t] <- (1 - lambda) * d[t-1] + abs(u_1[t] - r_1[t])
+  } else {
+    d[t] <- (1 - lambda) * d[t-1] + abs(u_2[t] - r_2[t])
+  }
+
+  # choice rule
+  if (d[t] < theta) {
+    y[t] <- y[t-1]
+  } else {
+    y[t] <- ifelse(u_1[t] > u_2[t], 1, 2)
+  }
+}
+
+```
+
+Now we plot:
+
+- the utilities and predicted utilities over time
+- the choice over time
+- the doubt stock over time
+
+and combine them all into the one nice graph. 
+
+```{r, fig.width=7, fig.height=6}
+df <- data.frame(
+  time = 1:time_horizon,
+  u_1 = u_1,
+  u_2 = u_2,
+  r_1 = r_1,
+  r_2 = r_2,
+  d = d,
+  y = y
+) 
+
+utilities_plot <- df %>%
+  pivot_longer(cols = c(u_1, u_2, r_1, r_2), names_to = "option", values_to = "value") %>%
+  ggplot(aes(x = time, y = value, color = option)) +
+  geom_line() +
+  labs(
+    x = "Time",
+    y = "Utility (u) / Predicted reward (r)",
+    title = "Utility and Predicted Reward Over Time",
+    color = " "
+  ) 
+
+choice_plot <- df %>%
+  ggplot(aes(x = time, y = 1, shape = factor(y), color = factor(y))) +
+  geom_point(size = 3) +
+  scale_shape_manual(values = c("1" = 16, "2" = 17)) +
+  scale_color_manual(values = c("1" = "black", "2" = "darkred")) +
+  labs(
+    x = "Time",
+    y = NULL,
+    shape = "Choice",
+    color = "Choice",
+    title = "Choice Over Time"
+  ) 
+
+doubt_plot <- df %>%
+  ggplot(aes(x = time, y = d,)) +
+  geom_line() +
+  geom_hline(yintercept = theta, linetype = "dashed") +
+  labs(
+    x = "Time",
+    y = "Doubt stock (d)",
+    title = "Doubt stock over time"
+  )
+
+# plot with patchwork
+(utilities_plot / choice_plot / doubt_plot) + 
+  plot_layout(heights = c(1, 0.3, 1))
+
+```
+
+
+
